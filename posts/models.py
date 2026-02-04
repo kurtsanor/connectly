@@ -10,8 +10,9 @@ class Post(models.Model):
         ('video', 'Video'),
     ]
     title = models.CharField(max_length=255)
-    content = models.TextField()
-    post_type = models.CharField(max_length=10, choices=POST_TYPES)
+    content = models.TextField(blank=True)
+    post_type = models.CharField(max_length=10, choices=POST_TYPES, default='text')
+    metadata = models.JSONField(null=True, blank=True)
     author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='posts')
     created_at = models.DateTimeField(auto_now_add=True)
 
