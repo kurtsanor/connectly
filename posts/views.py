@@ -21,13 +21,15 @@ class PostViewSet(viewsets.ModelViewSet):
         data = serializer.validated_data
 
         try:
-            PostFactory.create_post(
+            instance = PostFactory.create_post(
                 title=data.get('title'),
                 content=data.get('content'),
                 post_type=data.get('post_type'),
                 metadata=data.get('metadata'),
                 author=self.request.user
             )
+
+            serializer.instance = instance
         except ValueError as e:
             raise ValidationError(detail=str(e))
 
