@@ -27,3 +27,13 @@ class Comment(models.Model):
     
     def __str__(self):
         return f"Comment by {self.author.username} on Post {self.post.id}"
+
+class Like(models.Model):
+    post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='post_likes')
+    author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='user_likes')
+    
+    class Meta:
+        unique_together = ('post', 'author')
+
+    def __str__(self):
+        return f"Post {self.post.id} liked by {self.author.username}"
