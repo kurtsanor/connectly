@@ -17,4 +17,4 @@ class LikeSerializer(serializers.ModelSerializer):
     class Meta:
         model = Like
         fields = '__all__'
-        read_only_fields = ['author', 'post']
+        read_only_fields = ['post', 'author']
