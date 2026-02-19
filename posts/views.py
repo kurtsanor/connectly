@@ -18,9 +18,14 @@ class PostViewSet(viewsets.ModelViewSet):
     queryset = Post.objects.all() # tells DRF which objects/model to operate on.
     serializer_class = PostSerializer # tells DRF how to convert model instances to JSON and validate incoming data.
     authentication_classes = [JwtAuthentication]
-    permission_classes=[IsAuthenticated, isAuthor]
+    permission_classes=[IsAuthenticated]
     
     logger = LoggerSingleton().get_logger()
+
+    def get_permissions(self):
+        if self.action in ['update', 'destroy']:
+            return [IsAuthenticated(), isAuthor()]
+        return [IsAuthenticated(), ]
     
     def get_queryset(self):
         self.logger.info("Retrieving all posts...")

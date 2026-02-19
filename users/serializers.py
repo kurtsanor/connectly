@@ -4,7 +4,7 @@ from .models import User
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'password']
+        fields = ['id', 'username', 'email', 'password', 'first_name', 'last_name', 'google_id']
         extra_kwargs = {
             'password': {'write_only': True}
         }
@@ -15,3 +15,6 @@ class UserSerializer(serializers.ModelSerializer):
             email=validated_data['email'],
             password=validated_data['password']
         )
+    
+class GoogleCallbackSerializer(serializers.Serializer):
+    code = serializers.CharField()
