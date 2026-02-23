@@ -6,15 +6,10 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = ['id', 'username', 'email', 'password', 'first_name', 'last_name', 'google_id']
         extra_kwargs = {
-            'password': {'write_only': True}
+            'password': {'write_only': True},
+            'first_name': {'required': True},
+            'last_name': {'required': True},
         }
 
-    def create(self, validated_data):
-        return User.objects.create(
-            username=validated_data['username'],
-            email=validated_data['email'],
-            password=validated_data['password']
-        )
-    
 class GoogleCallbackSerializer(serializers.Serializer):
     code = serializers.CharField()

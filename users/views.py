@@ -14,6 +14,7 @@ from django.conf import settings
 from .services.google_oauth import exchange_code, get_google_auth_url, get_user_info
 from connectly.singletons.logger_singleton import LoggerSingleton
 from .services.jwt import generate_token
+from rest_framework import serializers
 
 logger = LoggerSingleton().get_logger()
 
@@ -31,6 +32,12 @@ class UserViewSet(viewsets.ModelViewSet):
     # registering a user
     def perform_create(self, serializer):
         data = serializer.validated_data
+
+        username = data.get('username')
+        password = data.get('password')
+
+        if not username or not password:
+            raise serializers.ValidationError({"error": "username and password fields are required"})
         
         hashed_password = make_password(data.get('password'))
 
@@ -78,10 +85,23 @@ class GoogleLoginView(APIView):
         try:
             tokens = exchange_code(serializer.validated_data["code"])
             user_info = get_user_info(tokens["access_token"])
+
+            user_email = user_info.get('email')
+
+            # check if email exists. if yes, link the google id to the user's existing account
+            existing_user = User.objects.filter(email=user_email).first()
+
+            if existing_user:
+                existing_user.google_id = user_info.get('sub')
+                existing_user.save()
+                return Response({"user": UserSerializer(existing_user).data, 
+                             "message": "Login successful. Your google account has been linked to your existing profile.", 
+                             "token": generate_token(existing_user)})
+
             user, created = self.upsert_user(user_info)
             logger.info(f"user info: {user_info}")
             return Response({"user": UserSerializer(user).data, 
-                             "created": created, 
+                             "message": "Login successful.", 
                              "token": generate_token(user)})
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
