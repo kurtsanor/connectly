@@ -15,6 +15,7 @@ from .services.google_oauth import exchange_code, get_google_auth_url, get_user_
 from connectly.singletons.logger_singleton import LoggerSingleton
 from .services.jwt import generate_token
 from rest_framework import serializers
+from .services.cloudinary import upload_avatar
 
 logger = LoggerSingleton().get_logger()
 
@@ -91,7 +92,7 @@ class GoogleLoginView(APIView):
             # check if email exists. if yes, link the google id to the user's existing account
             existing_user = User.objects.filter(email=user_email).first()
 
-            if existing_user:
+            if existing_user and not existing_user.google_id:
                 existing_user.google_id = user_info.get('sub')
                 existing_user.save()
                 return Response({"user": UserSerializer(existing_user).data, 
@@ -119,5 +120,21 @@ class GoogleLoginView(APIView):
         )
         return user, created
 
+class AvatarUploadView(APIView):
+    authentication_classes = [JwtAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        file = request.FILES.get("avatar")
+        if not file:
+            return Response({"error": "No file provided."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            url = upload_avatar(file)
+            request.user.avatar = url
+            request.user.save()
+            return Response({"avatar": url})
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 

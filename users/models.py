@@ -8,6 +8,7 @@ class User(models.Model):
     first_name = models.CharField(max_length=100, blank=True)
     last_name = models.CharField(max_length=100, blank=True)
     google_id = models.CharField(max_length=255, unique=True, null=True, blank=True)
+    avatar = models.URLField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     
     def __str__(self):
