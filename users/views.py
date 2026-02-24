@@ -99,7 +99,7 @@ class GoogleLoginView(APIView):
                              "message": "Login successful. Your google account has been linked to your existing profile.", 
                              "token": generate_token(existing_user)})
 
-            user, created = self.upsert_user(user_info)
+            user, created = self.get_or_create_user(user_info)
             logger.info(f"user info: {user_info}")
             return Response({"user": UserSerializer(user).data, 
                              "message": "Login successful.", 
@@ -108,9 +108,9 @@ class GoogleLoginView(APIView):
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     @staticmethod
-    def upsert_user(user_info: dict):
+    def get_or_create_user(user_info: dict):
         google_id = user_info['sub']
-        user, created = User.objects.update_or_create(
+        user, created = User.objects.get_or_create(
             google_id=google_id,
             defaults={
                 "email": user_info.get('email', ""),
