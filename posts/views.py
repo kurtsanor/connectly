@@ -1,5 +1,6 @@
 from django.shortcuts import render
 from rest_framework import viewsets, status
+from rest_framework.views import APIView
 from .models import Post, Comment, Like
 from .serializers import PostSerializer, CommentSerializer, LikeSerializer
 from users.permissions import IsAuthenticated
@@ -11,7 +12,7 @@ from rest_framework.response import Response
 from django.db.models import Count
 from users.authentication import JwtAuthentication
 from connectly.singletons.logger_singleton import LoggerSingleton
-from .pagination import CommentPagination
+from .pagination import CommentPagination, PostPagination
 
 # Create your views here.
 class PostViewSet(viewsets.ModelViewSet):
@@ -114,3 +115,25 @@ class PostViewSet(viewsets.ModelViewSet):
                              'data': serializer.data,
                              }, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+class FeedView(APIView):
+    pagination_class = PostPagination
+    authentication_classes = [JwtAuthentication]
+    permission_classes=[IsAuthenticated]
+
+    def get(self, request):
+        posts = Post.objects.annotate(
+            like_count=Count('post_likes', distinct=True),
+            comment_count=Count('comments')).order_by('-created_at')
+
+        paginator = self.pagination_class()
+
+        page = paginator.paginate_queryset(posts, request)
+
+        if page is not None:
+            serializer = PostSerializer(page, many=True, context={'request': request})
+            return paginator.get_paginated_response(serializer.data)
+
+        serializer = PostSerializer(posts, many=True, context={'request': request})
+        return Response(serializer.data)
+

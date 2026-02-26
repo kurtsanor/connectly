@@ -10,7 +10,7 @@ class ConfigManager:
 
     def _initialize(self):
         self.settings = {
-            "DEFAULT_PAGE_SIZE": 20,
+            "DEFAULT_PAGE_SIZE": 10,
             "ENABLE_ANALYTICS": True,
             "RATE_LIMIT": 100
         }
