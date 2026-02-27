@@ -66,7 +66,7 @@ class PostViewSet(viewsets.ModelViewSet):
             serializer.instance = instance
         except ValueError as e:
             raise ValidationError(detail=str(e))
-        
+    
     # comment on post endpoint
     @action(detail=True, methods=['post'])
     def comment(self, request, pk=None):
@@ -121,13 +121,24 @@ class FeedView(APIView):
     authentication_classes = [JwtAuthentication]
     permission_classes=[IsAuthenticated]
 
+    VALID_FILTERS = ['liked']
+
     def get(self, request):
         posts = Post.objects.annotate(
             like_count=Count('post_likes', distinct=True),
             comment_count=Count('comments')).order_by('-created_at')
 
-        paginator = self.pagination_class()
+        filter = request.query_params.get('show', '').lower()
 
+        if filter and filter not in self.VALID_FILTERS:
+            return Response(
+                {'error': f'Invalid filter. Valid options are: {self.VALID_FILTERS}'},
+                status=status.HTTP_400_BAD_REQUEST)
+        
+        if filter == "liked":
+            posts = posts.filter(post_likes__author=request.user)
+
+        paginator = self.pagination_class()
         page = paginator.paginate_queryset(posts, request)
 
         if page is not None:
