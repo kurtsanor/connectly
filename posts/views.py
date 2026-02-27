@@ -121,7 +121,7 @@ class FeedView(APIView):
     authentication_classes = [JwtAuthentication]
     permission_classes=[IsAuthenticated]
 
-    VALID_FILTERS = ['liked']
+    VALID_FILTERS = ['liked', 'followed']
 
     def get(self, request):
         posts = Post.objects.annotate(
@@ -129,7 +129,7 @@ class FeedView(APIView):
             comment_count=Count('comments')).order_by('-created_at')
 
         filter = request.query_params.get('show', '').lower()
-
+        
         if filter and filter not in self.VALID_FILTERS:
             return Response(
                 {'error': f'Invalid filter. Valid options are: {self.VALID_FILTERS}'},
@@ -138,6 +138,9 @@ class FeedView(APIView):
         if filter == "liked":
             posts = posts.filter(post_likes__author=request.user)
 
+        elif filter == "followed":
+            posts = posts.filter(author__following__follower=request.user)
+        
         paginator = self.pagination_class()
         page = paginator.paginate_queryset(posts, request)
 

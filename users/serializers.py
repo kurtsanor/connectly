@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import User
+from .models import User, Follow
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
@@ -10,6 +10,12 @@ class UserSerializer(serializers.ModelSerializer):
             'first_name': {'required': True},
             'last_name': {'required': True},
         }
+
+class FollowSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Follow
+        fields = ['id', 'follower', 'following', 'created_at']
+        read_only_fields = ['follower']
 
 class GoogleCallbackSerializer(serializers.Serializer):
     code = serializers.CharField()

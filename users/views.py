@@ -1,15 +1,13 @@
 from django.shortcuts import render
 from rest_framework import viewsets, status
-from .models import User
-from .serializers import GoogleCallbackSerializer, UserSerializer
+from .models import User, Follow
+from .serializers import GoogleCallbackSerializer, UserSerializer, FollowSerializer
 from .permissions import IsAuthenticated
 from django.contrib.auth.hashers import make_password, check_password
 from .authentication import JwtAuthentication
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-import jwt
-from datetime import datetime, timedelta
 from django.conf import settings
 from .services.google_oauth import exchange_code, get_google_auth_url, get_user_info
 from connectly.singletons.logger_singleton import LoggerSingleton
@@ -136,5 +134,29 @@ class AvatarUploadView(APIView):
             return Response({"avatar": url})
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        
+class FollowView(APIView):
+    authentication_classes = [JwtAuthentication]
+    permission_classes = [IsAuthenticated]
+    serializers = [Follow]
+
+    def post(self, request, user_id):
+        if request.user.id == user_id:
+            return Response({"error": "You cannot follow yourself"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            user_to_follow = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({"error": "The user you tried to follow does not exist."}, status=status.HTTP_404_NOT_FOUND)
+
+        follow, created = Follow.objects.get_or_create(
+            follower=request.user,
+            following=user_to_follow
+        )
+
+        if not created:
+            return Response({"error": f"You are already followng this user."}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({"message": f"You are now following {follow.following}"})
 
 
