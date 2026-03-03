@@ -4,7 +4,7 @@ class PostFactory:
     @staticmethod
     def create_post(post_type, title, author, content='', metadata=None):
         if post_type not in dict(Post.POST_TYPES):
-            raise ValueError("Invalid post type")
+            raise ValueError(f"Invalid post type. Valid type are {Post.POST_TYPES}")
         
         safe_metadata = metadata or {}
         

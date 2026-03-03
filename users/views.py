@@ -18,39 +18,49 @@ from .services.cloudinary import upload_avatar
 logger = LoggerSingleton().get_logger()
 
 # Create your views here.
-class UserViewSet(viewsets.ModelViewSet):
-    queryset = User.objects.all()
-    serializer_class = UserSerializer
+class UserListCreate(APIView):
     authentication_classes=[JwtAuthentication]
 
     def get_permissions(self):
-        if self.action == 'create':  # register is public
+        if self.request.method == 'create':  # register is public
             return []
         return [IsAuthenticated()]
+    
+    def get(self, request):
+        users = User.objects.all()
+        serializer = UserSerializer(users, many=True)
+        return Response(serializer.data)
 
     # registering a user
-    def perform_create(self, serializer):
-        data = serializer.validated_data
-
-        username = data.get('username')
-        password = data.get('password')
+    def post(self, request):
+        username = request.data.get('username')
+        password = request.data.get('password')
 
         if not username or not password:
-            raise serializers.ValidationError({"error": "username and password fields are required"})
+            raise serializers.ValidationError(
+                {"username": "This field is required", 
+                 "password": "This field is required"}
+                )
         
-        hashed_password = make_password(data.get('password'))
+        serializer = UserSerializer(data=request.data)
+        if serializer.is_valid():
+            hashed_password = make_password(password)
+            serializer.save(password=hashed_password)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
 
-        instance = User.objects.create(
-            username=data.get('username'),
-            email=data.get('email'),
-            password=hashed_password,
-         )
-        serializer.instance = instance
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
 
 class LoginView(APIView):
     def post(self, request):
         username = request.data.get('username')
         password = request.data.get('password')
+        
+        if not username or not password:
+            raise serializers.ValidationError(
+                {"username": "This field is required", 
+                 "password": "This field is required"}
+                )
 
         try:
             user = User.objects.get(username=username)
@@ -62,11 +72,12 @@ class LoginView(APIView):
         
         token = generate_token(user)
 
-        return Response({'token': token})
+        return Response({"message": "Login successful", 'token': token}, status=status.HTTP_200_OK)
     
 class GoogleAuthUrlView(APIView):
     def get(self, request):
         return Response({"auth_url": get_google_auth_url()})
+    
     
 class GoogleCallbackView(APIView):
     def get(self, request):
@@ -75,6 +86,7 @@ class GoogleCallbackView(APIView):
             return Response({"error": "code not found"}, status=status.HTTP_400_BAD_REQUEST)
         logger.info(f"code is: {code}")
         return Response({"code": code})
+    
 
 class GoogleLoginView(APIView): 
     def post(self, request):
@@ -96,7 +108,7 @@ class GoogleLoginView(APIView):
                 return Response({"user": UserSerializer(existing_user).data, 
                              "message": "Login successful. Your google account has been linked to your existing profile.", 
                              "token": generate_token(existing_user)})
-
+            
             user, created = self.get_or_create_user(user_info)
             logger.info(f"user info: {user_info}")
             return Response({"user": UserSerializer(user).data, 
@@ -104,7 +116,7 @@ class GoogleLoginView(APIView):
                              "token": generate_token(user)})
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
+    
     @staticmethod
     def get_or_create_user(user_info: dict):
         google_id = user_info['sub']
@@ -117,6 +129,7 @@ class GoogleLoginView(APIView):
             }
         )
         return user, created
+    
 
 class AvatarUploadView(APIView):
     authentication_classes = [JwtAuthentication]
@@ -135,10 +148,10 @@ class AvatarUploadView(APIView):
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         
+        
 class FollowView(APIView):
     authentication_classes = [JwtAuthentication]
     permission_classes = [IsAuthenticated]
-    serializers = [Follow]
 
     def post(self, request, user_id):
         if request.user.id == user_id:

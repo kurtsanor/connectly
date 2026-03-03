@@ -13,97 +13,103 @@ from django.db.models import Count
 from users.authentication import JwtAuthentication
 from connectly.singletons.logger_singleton import LoggerSingleton
 from .pagination import CommentPagination, PostPagination
+from rest_framework import serializers
 
 # Create your views here.
-class PostViewSet(viewsets.ModelViewSet):
-    queryset = Post.objects.all() # tells DRF which objects/model to operate on.
-    serializer_class = PostSerializer # tells DRF how to convert model instances to JSON and validate incoming data.
+class PostListCreate(APIView):
     authentication_classes = [JwtAuthentication]
-    permission_classes=[IsAuthenticated]
+    permission_classes = [IsAuthenticated]
     
     logger = LoggerSingleton().get_logger()
-
-    def get_permissions(self):
-        if self.action in ['update', 'destroy']:
-            return [IsAuthenticated(), isAuthor()]
-        return [IsAuthenticated(), ]
     
-    def get_queryset(self):
+    def get(self, request):
         self.logger.info("Retrieving all posts...")
         # add comments and likes count
-        return self.queryset.annotate(
+        posts = Post.objects.annotate(
             like_count=Count('post_likes', distinct=True),
-            comment_count=Count('comments')
+            comment_count=Count('comments', distinct=True)
         )
+        serializer = PostSerializer(posts, many=True)
+        return Response(serializer.data)
     
-    def retrieve(self, request, *args, **kwargs):
-        post = self.get_object()
-
-        serializer = self.get_serializer(post)
-
-        self.logger.info(f"Retrieving post id: {post.id}...")
-
-        data = serializer.data
-        # add comment and like count
-        data['like_count'] = post.post_likes.count()
-        data['comment_count'] = post.comments.count()
-        return Response(data)
-
-    def perform_create(self, serializer):
+    def post(self, request):
         self.logger.info("Creating new post...")
         self.logger.info(f"User is: {self.request.user}")
+        serializer = PostSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         
         try:
-            instance = PostFactory.create_post(
+            post = PostFactory.create_post(
                 title=data.get('title'),
-                content=data.get('content'),
+                content=data.get('content', ''),
                 post_type=data.get('post_type'),
                 metadata=data.get('metadata'),
                 author=self.request.user,
             )
-
-            serializer.instance = instance
+            response_serializer = PostSerializer(post)
+            return Response(response_serializer.data, status=status.HTTP_201_CREATED)
         except ValueError as e:
             raise ValidationError(detail=str(e))
     
+class CommentCreateView(APIView):
+    authentication_classes = [JwtAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    logger = LoggerSingleton().get_logger()
+
     # comment on post endpoint
-    @action(detail=True, methods=['post'])
-    def comment(self, request, pk=None):
-        post = self.get_object()
+    def post(self, request, post_id):
+        post = Post.objects.get(pk=post_id)
         self.logger.info(f"Commenting on post id: {post.id}...")
         serializer = CommentSerializer(data=request.data)
+
         if serializer.is_valid():
             serializer.save(post=post, author=request.user)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
+        
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
+class CommentListView(APIView):
+    authentication_classes = [JwtAuthentication]
+    permission_classes = [IsAuthenticated]
+    pagination_class = CommentPagination
+
+    logger = LoggerSingleton().get_logger()
     # get comments of a post
-    @action(detail=True, methods=['get'])
-    def comments(self, request, pk=None):
-        post = self.get_object()
+    def get(self, request, post_id):
+        post = Post.objects.get(pk=post_id)
         self.logger.info(f"Retrieving paginated comments of post id: {post.id}...")
         comments = post.comments.all()
 
-        self.pagination_class = CommentPagination
+        paginator = self.pagination_class()
 
-        page = self.paginate_queryset(comments)
+        page = paginator.paginate_queryset(comments, request)
         if page is not None:
             self.logger.info("Returning paginated data...")
             serializer = CommentSerializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
+            return paginator.get_paginated_response(serializer.data)
 
         serializer = CommentSerializer(comments, many=True) # true = tell DRF that comments is a list
         return Response(serializer.data)
     
+
+class PostLikeView(APIView):
+    authentication_classes = [JwtAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    logger = LoggerSingleton().get_logger()
+
     # liking a post
-    @action(detail=True, methods=['post'])
-    def like(self, request, pk=None):
-        post = self.get_object()
-        self.logger.info(f"Liking post id: {post.id}...")
-        self.logger.info(f"user is: {request.user.id}")
+    def post(self, request, post_id):
+        try:
+            post = Post.objects.get(pk=post_id)
+            self.logger.info(f"Liking post id: {post.id}...")
+            self.logger.info(f"user is: {request.user.id}")
+        except Post.DoesNotExist:
+            raise serializers.ValidationError("Post not found")
         # check if already liked
-        is_liked = Like.objects.all().filter(post=post, author=request.user.id).exists()
+        is_liked = Like.objects.all().filter(post=post, author=request.user).exists()
         
         if is_liked:
             return Response({'message': 'You already liked this post'}, status=status.HTTP_400_BAD_REQUEST)
@@ -116,6 +122,23 @@ class PostViewSet(viewsets.ModelViewSet):
                              }, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
+class PostDetailView(APIView):
+    authentication_classes = [JwtAuthentication]
+    permission_classes = [IsAuthenticated, isAuthor]
+
+    def get(self, request, post_id):
+        try:
+            post = Post.objects.get(pk=post_id)
+            self.check_object_permissions(request, post)
+            serializer = PostSerializer(post)
+            data = serializer.data
+            data['like_count'] = post.post_likes.count()
+            data['comment_count'] = post.comments.count()
+            return Response(data)
+        except Post.DoesNotExist:
+            return Response({"error": "Post does not exist."}, status=status.HTTP_404_NOT_FOUND)
+
+    
 class FeedView(APIView):
     pagination_class = PostPagination
     authentication_classes = [JwtAuthentication]
@@ -126,7 +149,7 @@ class FeedView(APIView):
     def get(self, request):
         posts = Post.objects.annotate(
             like_count=Count('post_likes', distinct=True),
-            comment_count=Count('comments')).order_by('-created_at')
+            comment_count=Count('comments', distinct=True)).order_by('-created_at')
 
         filter = request.query_params.get('show', '').lower()
         

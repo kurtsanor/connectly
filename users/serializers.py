@@ -10,6 +10,7 @@ class UserSerializer(serializers.ModelSerializer):
             'first_name': {'required': True},
             'last_name': {'required': True},
         }
+        read_only_fields = ['google_id']
 
 class FollowSerializer(serializers.ModelSerializer):
     class Meta:
