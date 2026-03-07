@@ -30,7 +30,7 @@ def exchange_code(code: str):
         "grant_type": "authorization_code",
     })
     if response.status_code == 400:
-        raise AuthenticationFailed("Authorization code has expired or already used.")
+        raise AuthenticationFailed("Authorization code is expired, invalid, or already used.")
     response.raise_for_status()
     return response.json()
 
