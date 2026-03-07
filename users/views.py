@@ -20,7 +20,7 @@ logger = LoggerSingleton().get_logger()
 # Create your views here.
 class UserListCreate(APIView):
     authentication_classes=[JwtAuthentication]
-
+    
     def get_permissions(self):
         if self.request.method == 'create':  # register is public
             return []
