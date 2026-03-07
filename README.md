@@ -41,7 +41,7 @@ Whether you're building a mobile app, a web client, or integrating social featur
 |---|---|
 | **Framework** | Django 6.0.1 |
 | **API** | Django REST Framework |
-| **Authentication** | JWT (`djangorestframework-simplejwt`) + Google OAuth |
+| **Authentication** | JWT + Google OAuth |
 | **Media Storage** | Cloudinary |
 | **Database** | SQLite (development) |
 | **Password Hashing** | bcrypt |
