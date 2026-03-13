@@ -1,176 +1,321 @@
-from django.shortcuts import render
-from rest_framework import viewsets, status
+from rest_framework import viewsets, status, serializers
 from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.exceptions import ValidationError
+from django.db.models import Count
+
 from .models import Post, Comment, Like
 from .serializers import PostSerializer, CommentSerializer, LikeSerializer
-from users.permissions import IsAuthenticated
 from .permissions import isAuthor
 from .factories.post_factory import PostFactory
-from rest_framework.exceptions import ValidationError
-from rest_framework.decorators import action
-from rest_framework.response import Response
-from django.db.models import Count
+from .pagination import CommentPagination, PostPagination
+from users.permissions import IsAuthenticated
 from users.authentication import JwtAuthentication
 from connectly.singletons.logger_singleton import LoggerSingleton
-from .pagination import CommentPagination, PostPagination
-from rest_framework import serializers
+from connectly.singletons.paginator_singleton import PostPaginatorSingleton, CommentPaginatorSingleton
 
-# Create your views here.
+
+
+# Instantiate the global singletons once for shared use across all views.
+logger = LoggerSingleton().get_logger()
+comment_paginator = CommentPaginatorSingleton.get_instance()
+post_paginator = PostPaginatorSingleton.get_instance()
+
+
 class PostListCreate(APIView):
+    """
+    Handles listing all posts and creating new ones.
+
+    GET  /posts/      — Returns all posts with like and comment counts.
+    POST /posts/      — Creates a new post using the PostFactory.
+    """
+
     authentication_classes = [JwtAuthentication]
     permission_classes = [IsAuthenticated]
-    
-    logger = LoggerSingleton().get_logger()
-    
+
     def get(self, request):
-        self.logger.info("Retrieving all posts...")
-        # add comments and likes count
-        posts = Post.objects.annotate(
+        """
+        Retrieves all posts annotated with their like and comment counts.
+
+        Args:
+            request (Request): The incoming HTTP GET request.
+
+        Returns:
+            Response: A JSON list of all posts including like_count and comment_count.
+        """
+        logger.info("Retrieving all posts...")
+
+        # Annotate each post with aggregated like and comment counts in a single query.
+        all_posts = Post.objects.annotate(
             like_count=Count('post_likes', distinct=True),
             comment_count=Count('comments', distinct=True)
         )
-        serializer = PostSerializer(posts, many=True)
-        return Response(serializer.data)
-    
+
+        post_serializer = PostSerializer(all_posts, many=True)  # many=True tells DRF to serialize a list.
+        return Response(post_serializer.data)
+
     def post(self, request):
-        self.logger.info("Creating new post...")
-        self.logger.info(f"User is: {self.request.user}")
-        serializer = PostSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
-        
+        """
+        Creates a new post for the authenticated user using the PostFactory.
+
+        Validates the incoming data, then delegates post creation to the
+        PostFactory to handle type-specific construction logic.
+
+        Args:
+            request (Request): The incoming HTTP POST request containing post data.
+
+        Returns:
+            Response: The created post data on success (HTTP 201), or a validation
+                      error if the post type or data is invalid (HTTP 400).
+        """
+        logger.info("Creating new post...")
+        logger.info(f"Requested by user: {request.user}")
+
+        post_serializer = PostSerializer(data=request.data)
+        post_serializer.is_valid(raise_exception=True)
+        validated_post_data = post_serializer.validated_data
+
         try:
-            post = PostFactory.create_post(
-                title=data.get('title'),
-                content=data.get('content', ''),
-                post_type=data.get('post_type'),
-                metadata=data.get('metadata'),
-                author=self.request.user,
+            # Delegate post creation to the factory to handle type-specific logic.
+            new_post = PostFactory.create_post(
+                title=validated_post_data.get('title'),
+                content=validated_post_data.get('content', ''),
+                post_type=validated_post_data.get('post_type'),
+                metadata=validated_post_data.get('metadata'),
+                author=request.user,
             )
-            response_serializer = PostSerializer(post)
+            response_serializer = PostSerializer(new_post)
             return Response(response_serializer.data, status=status.HTTP_201_CREATED)
-        except ValueError as e:
-            raise ValidationError(detail=str(e))
-    
+
+        except ValueError as post_creation_error:
+            raise ValidationError(detail=str(post_creation_error))
+
+
 class CommentCreateView(APIView):
+    """
+    Handles creating a new comment on a specific post.
+
+    POST /posts/<post_id>/comments/ — Adds a comment to the specified post.
+    """
+
     authentication_classes = [JwtAuthentication]
     permission_classes = [IsAuthenticated]
 
-    logger = LoggerSingleton().get_logger()
-
-    # comment on post endpoint
     def post(self, request, post_id):
-        post = Post.objects.get(pk=post_id)
-        self.logger.info(f"Commenting on post id: {post.id}...")
-        serializer = CommentSerializer(data=request.data)
+        """
+        Creates a new comment on the specified post authored by the authenticated user.
 
-        if serializer.is_valid():
-            serializer.save(post=post, author=request.user)
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
+        Args:
+            request (Request): The incoming HTTP POST request containing comment data.
+            post_id (int): The primary key of the post to comment on.
+
+        Returns:
+            Response: The created comment data on success (HTTP 201), or validation
+                      errors on failure (HTTP 400).
+        """
+        target_post = Post.objects.get(pk=post_id)
+        logger.info(f"Adding comment to post id: {target_post.id}...")
+
+        comment_serializer = CommentSerializer(data=request.data)
+
+        if comment_serializer.is_valid():
+            comment_serializer.save(post=target_post, author=request.user)
+            return Response(comment_serializer.data, status=status.HTTP_201_CREATED)
+
+        return Response(comment_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
 class CommentListView(APIView):
+    """
+    Handles paginated retrieval of comments for a specific post.
+
+    GET /posts/<post_id>/comments/ — Returns a paginated list of comments on the post.
+    """
+
     authentication_classes = [JwtAuthentication]
     permission_classes = [IsAuthenticated]
-    pagination_class = CommentPagination
 
-    logger = LoggerSingleton().get_logger()
-    # get comments of a post
     def get(self, request, post_id):
-        post = Post.objects.get(pk=post_id)
-        self.logger.info(f"Retrieving paginated comments of post id: {post.id}...")
-        comments = post.comments.all()
+        """
+        Retrieves a paginated list of comments for the specified post.
 
-        paginator = self.pagination_class()
+        Uses the CommentPagination class to split results into pages.
+        Returns all comments unpaginated if pagination is not applicable.
 
-        page = paginator.paginate_queryset(comments, request)
-        if page is not None:
-            self.logger.info("Returning paginated data...")
-            serializer = CommentSerializer(page, many=True)
-            return paginator.get_paginated_response(serializer.data)
+        Args:
+            request (Request): The incoming HTTP GET request.
+            post_id (int): The primary key of the post whose comments are being retrieved.
 
-        serializer = CommentSerializer(comments, many=True) # true = tell DRF that comments is a list
-        return Response(serializer.data)
-    
+        Returns:
+            Response: A paginated JSON list of comments, or a full list if pagination
+                      is not applicable.
+        """
+        target_post = Post.objects.get(pk=post_id)
+        logger.info(f"Retrieving paginated comments for post id: {target_post.id}...")
+
+        post_comments = target_post.comments.all()
+
+        # Instantiate the paginator and attempt to paginate the comment queryset.
+        paginated_comments = comment_paginator.paginate_queryset(post_comments, request)
+
+        if paginated_comments is not None:
+            logger.info("Returning paginated comment data...")
+            comment_serializer = CommentSerializer(paginated_comments, many=True)
+            return comment_paginator.get_paginated_response(comment_serializer.data)
+
+        # Fall back to returning all comments if pagination is not triggered.
+        comment_serializer = CommentSerializer(post_comments, many=True)    # many=True tells DRF to serialize a list.
+        return Response(comment_serializer.data)
+
 
 class PostLikeView(APIView):
+    """
+    Handles liking a specific post.
+
+    POST /posts/<post_id>/like/ — Adds a like to the specified post for the authenticated user.
+    """
+
     authentication_classes = [JwtAuthentication]
     permission_classes = [IsAuthenticated]
 
-    logger = LoggerSingleton().get_logger()
-
-    # liking a post
     def post(self, request, post_id):
+        """
+        Creates a like on the specified post for the authenticated user.
+
+        Prevents duplicate likes by checking if the user has already liked the post.
+
+        Args:
+            request (Request): The incoming HTTP POST request.
+            post_id (int): The primary key of the post to like.
+
+        Returns:
+            Response: A success message and like data on success (HTTP 201), or an error
+                      if the post is not found (HTTP 400) or already liked (HTTP 400).
+        """
         try:
-            post = Post.objects.get(pk=post_id)
-            self.logger.info(f"Liking post id: {post.id}...")
-            self.logger.info(f"user is: {request.user.id}")
+            target_post = Post.objects.get(pk=post_id)
+            logger.info(f"User {request.user.id} is liking post id: {target_post.id}...")
         except Post.DoesNotExist:
-            raise serializers.ValidationError("Post not found")
-        # check if already liked
-        is_liked = Like.objects.all().filter(post=post, author=request.user).exists()
-        
-        if is_liked:
-            return Response({'message': 'You already liked this post'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        serializer = LikeSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save(post=post, author=request.user)
-            return Response({'message': 'Liked',
-                             'data': serializer.data,
-                             }, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
+            raise serializers.ValidationError("Post not found.")
+
+        # Check if the user has already liked this post to prevent duplicate likes.
+        already_liked = Like.objects.filter(post=target_post, author=request.user).exists()
+
+        if already_liked:
+            return Response({'message': 'You have already liked this post.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        like_serializer = LikeSerializer(data=request.data)
+
+        if like_serializer.is_valid():
+            like_serializer.save(post=target_post, author=request.user)
+            return Response({
+                'message': 'Post liked successfully.',
+                'data':    like_serializer.data,
+            }, status=status.HTTP_201_CREATED)
+
+        return Response(like_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
 class PostDetailView(APIView):
+    """
+    Handles retrieval of a single post by its ID.
+
+    GET /posts/<post_id>/ — Returns the post details including like and comment counts.
+                            Only accessible by the post's author.
+    """
+
     authentication_classes = [JwtAuthentication]
     permission_classes = [IsAuthenticated, isAuthor]
 
     def get(self, request, post_id):
+        """
+        Retrieves a single post by ID, including its like and comment counts.
+
+        Enforces object-level permissions to ensure only the post's author
+        can access this endpoint.
+
+        Args:
+            request (Request): The incoming HTTP GET request.
+            post_id (int): The primary key of the post to retrieve.
+
+        Returns:
+            Response: The post data with like_count and comment_count on success (HTTP 200),
+                      or an error if the post does not exist (HTTP 404).
+        """
         try:
-            post = Post.objects.get(pk=post_id)
-            self.check_object_permissions(request, post)
-            serializer = PostSerializer(post)
-            data = serializer.data
-            data['like_count'] = post.post_likes.count()
-            data['comment_count'] = post.comments.count()
-            return Response(data)
+            target_post = Post.objects.get(pk=post_id)
+            self.check_object_permissions(request, target_post)     # Enforce author-only access.
+
+            post_serializer = PostSerializer(target_post)
+            post_data = post_serializer.data
+
+            # Append live counts directly to the response payload.
+            post_data['like_count'] = target_post.post_likes.count()
+            post_data['comment_count'] = target_post.comments.count()
+
+            return Response(post_data)
+
         except Post.DoesNotExist:
             return Response({"error": "Post does not exist."}, status=status.HTTP_404_NOT_FOUND)
 
-    
-class FeedView(APIView):
-    pagination_class = PostPagination
-    authentication_classes = [JwtAuthentication]
-    permission_classes=[IsAuthenticated]
 
-    VALID_FILTERS = ['liked', 'followed']
+class FeedView(APIView):
+    """
+    Handles retrieving a paginated feed of posts with optional filtering.
+
+    GET /feed/               — Returns all posts ordered by most recent.
+    GET /feed/?show=liked    — Returns only posts liked by the authenticated user.
+    GET /feed/?show=followed — Returns only posts by users the authenticated user follows.
+    """
+
+    authentication_classes = [JwtAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    VALID_FILTERS = ['liked', 'followed']   # Accepted values for the 'show' query parameter.
 
     def get(self, request):
-        posts = Post.objects.annotate(
-            like_count=Count('post_likes', distinct=True),
-            comment_count=Count('comments', distinct=True)).order_by('-created_at')
+        """
+        Retrieves a paginated feed of posts, optionally filtered by liked or followed.
 
-        filter = request.query_params.get('show', '').lower()
-        
-        if filter and filter not in self.VALID_FILTERS:
+        Applies the 'show' query parameter to filter the feed, then paginates
+        the results using PostPagination.
+
+        Args:
+            request (Request): The incoming HTTP GET request, optionally with a 'show' query param.
+
+        Returns:
+            Response: A paginated JSON list of posts matching the active filter,
+                      or an error if an invalid filter value is provided (HTTP 400).
+        """
+        # Annotate all posts with counts and sort by newest first.
+        feed_posts = Post.objects.annotate(
+            like_count=Count('post_likes', distinct=True),
+            comment_count=Count('comments', distinct=True)
+        ).order_by('-created_at')
+
+        active_filter = request.query_params.get('show', '').lower()
+
+        # Reject requests with unrecognized filter values.
+        if active_filter and active_filter not in self.VALID_FILTERS:
             return Response(
                 {'error': f'Invalid filter. Valid options are: {self.VALID_FILTERS}'},
-                status=status.HTTP_400_BAD_REQUEST)
-        
-        if filter == "liked":
-            posts = posts.filter(post_likes__author=request.user)
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-        elif filter == "followed":
-            posts = posts.filter(author__following__follower=request.user)
-        
-        paginator = self.pagination_class()
-        page = paginator.paginate_queryset(posts, request)
+        if active_filter == "liked":
+            # Narrow the feed to posts the authenticated user has liked.
+            feed_posts = feed_posts.filter(post_likes__author=request.user)
 
-        if page is not None:
-            serializer = PostSerializer(page, many=True, context={'request': request})
-            return paginator.get_paginated_response(serializer.data)
+        elif active_filter == "followed":
+            # Narrow the feed to posts authored by users the authenticated user follows.
+            feed_posts = feed_posts.filter(author__following__follower=request.user)
 
-        serializer = PostSerializer(posts, many=True, context={'request': request})
-        return Response(serializer.data)
+        # Paginate the filtered post queryset.
+        paginated_feed = post_paginator.paginate_queryset(feed_posts, request)
 
+        if paginated_feed is not None:
+            feed_serializer = PostSerializer(paginated_feed, many=True, context={'request': request})
+            return post_paginator.get_paginated_response(feed_serializer.data)
+
+        feed_serializer = PostSerializer(feed_posts, many=True, context={'request': request})
+        return Response(feed_serializer.data)

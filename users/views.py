@@ -15,18 +15,29 @@ from .services.jwt import generate_token
 from rest_framework import serializers
 from .services.cloudinary import upload_avatar
 
+# instantiate global singleton logger
 logger = LoggerSingleton().get_logger()
 
-# Create your views here.
 class UserListCreate(APIView):
+    """
+    APIView for retrieval and creation of users
+    """
     authentication_classes=[JwtAuthentication]
     
     def get_permissions(self):
+        """
+        Modifies the permissions of the endpoints
+        depending on the HTTP request
+        """
         if self.request.method == 'create':  # register is public
             return []
+        # require authentication for any other requests
         return [IsAuthenticated()]
     
     def get(self, request):
+        """
+        Returns all users
+        """
         users = User.objects.all()
         serializer = UserSerializer(users, many=True)
         return Response(serializer.data)
