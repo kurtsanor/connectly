@@ -45,12 +45,6 @@ class UserListCreate(APIView):
     def get(self, request):
         """
         Retrieves and returns a serialized list of all registered users.
-
-        Args:
-            request (Request): The incoming HTTP GET request.
-
-        Returns:
-            Response: A JSON list of all user records.
         """
         all_users = User.objects.all()
         user_serializer = UserSerializer(all_users, many=True)  # many=True tells DRF to serialize a list of objects.
@@ -62,13 +56,6 @@ class UserListCreate(APIView):
 
         Validates that both username and password are provided, then hashes
         the password before saving the new user to the database.
-
-        Args:
-            request (Request): The incoming HTTP POST request containing user credentials.
-
-        Returns:
-            Response: The created user data on success (HTTP 201), or validation
-                      errors on failure (HTTP 400).
         """
         submitted_username = request.data.get('username')
         submitted_password = request.data.get('password')
@@ -115,13 +102,6 @@ class LoginView(APIView):
 
         Verifies that the provided username exists and that the password matches
         the stored hash. Returns a JWT token if credentials are valid.
-
-        Args:
-            request (Request): The incoming HTTP POST request containing login credentials.
-
-        Returns:
-            Response: A JWT token on success (HTTP 200), or an error message
-                      for missing fields (HTTP 400) or invalid credentials (HTTP 401).
         """
         submitted_username = request.data.get('username')
         submitted_password = request.data.get('password')
@@ -157,12 +137,6 @@ class GoogleAuthUrlView(APIView):
     def get(self, request):
         """
         Returns the Google OAuth2 authorization URL.
-
-        Args:
-            request (Request): The incoming HTTP GET request.
-
-        Returns:
-            Response: A JSON object containing the Google authorization URL.
         """
         google_auth_url = get_google_auth_url()
         return Response({"auth_url": google_auth_url})
@@ -178,13 +152,6 @@ class GoogleCallbackView(APIView):
     def get(self, request):
         """
         Extracts and returns the authorization code from the Google OAuth2 callback.
-
-        Args:
-            request (Request): The incoming HTTP GET request from Google's redirect.
-
-        Returns:
-            Response: The authorization code on success (HTTP 200), or an error
-                      if the code parameter is missing (HTTP 400).
         """
         authorization_code = request.query_params.get('code')
 
@@ -210,13 +177,6 @@ class GoogleLoginView(APIView):
         If the Google email matches an existing account without a linked Google ID,
         the Google account is linked to that existing profile. Otherwise, a new
         user account is retrieved or created using the Google ID.
-
-        Args:
-            request (Request): The incoming HTTP POST request containing the authorization code.
-
-        Returns:
-            Response: The authenticated user's data and JWT token (HTTP 200),
-                      or an error message on failure (HTTP 400).
         """
         code_serializer = GoogleCallbackSerializer(data=request.data)
         code_serializer.is_valid(raise_exception=True)
@@ -259,13 +219,6 @@ class GoogleLoginView(APIView):
 
         Uses 'sub' as the unique Google identifier to look up or create the user record.
         Default field values are pulled from the Google profile if available.
-
-        Args:
-            google_user_info (dict): User profile data returned by the Google API,
-                                     including 'sub', 'email', 'given_name', and 'family_name'.
-
-        Returns:
-            tuple: A (User, bool) tuple where the bool indicates if a new user was created.
         """
         google_id = google_user_info['sub']     # 'sub' is the stable, unique ID Google assigns each user.
 
@@ -297,13 +250,6 @@ class AvatarUploadView(APIView):
 
         Expects a multipart form file with the key 'avatar'. On success, the user's
         avatar field is updated with the Cloudinary-hosted image URL.
-
-        Args:
-            request (Request): The incoming HTTP POST request containing the image file.
-
-        Returns:
-            Response: The uploaded avatar URL on success (HTTP 200), or an error
-                      message if no file is provided or the upload fails (HTTP 400).
         """
         uploaded_file = request.FILES.get("avatar")
 
@@ -338,15 +284,6 @@ class FollowView(APIView):
 
         Prevents users from following themselves and handles duplicate follow attempts
         with a descriptive error response.
-
-        Args:
-            request (Request): The incoming HTTP POST request from the authenticated user.
-            user_id (int): The primary key of the user to follow.
-
-        Returns:
-            Response: A success message on follow creation (HTTP 200), or an error
-                      for self-follow (HTTP 400), duplicate follow (HTTP 400),
-                      or non-existent target user (HTTP 404).
         """
         # Prevent a user from following their own account.
         if request.user.id == user_id:

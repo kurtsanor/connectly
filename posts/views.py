@@ -13,8 +13,7 @@ from users.permissions import IsAuthenticated, IsAdmin
 from users.authentication import JwtAuthentication
 from connectly.singletons.logger_singleton import LoggerSingleton
 from connectly.singletons.paginator_singleton import PostPaginatorSingleton, CommentPaginatorSingleton
-
-
+from django.db.models import Q
 
 # Instantiate the global singletons once for shared use across all views.
 logger = LoggerSingleton().get_logger()
@@ -71,6 +70,7 @@ class PostListCreate(APIView):
                 content=validated_post_data.get('content', ''),
                 post_type=validated_post_data.get('post_type'),
                 metadata=validated_post_data.get('metadata'),
+                privacy=validated_post_data.get('privacy'),
                 author=request.user,
             )
             response_serializer = PostSerializer(new_post)
@@ -231,7 +231,11 @@ class PostDetailView(APIView):
         """
         try:
             target_post = Post.objects.get(pk=post_id)
-            self.check_object_permissions(request, target_post)     # Enforce author-only access.
+
+            if target_post.privacy == 'public':
+                pass
+            elif target_post.privacy == 'private':
+                self.check_object_permissions(request, target_post)     # Enforce author-only access.
 
             post_serializer = PostSerializer(target_post)
             post_data = post_serializer.data
@@ -282,7 +286,9 @@ class FeedView(APIView):
         feed_posts = Post.objects.annotate(
             like_count=Count('post_likes', distinct=True),
             comment_count=Count('comments', distinct=True)
-        ).order_by('-created_at')
+        ).filter(
+            Q(privacy='public') | Q(author=request.user, privacy='private') # Filter to show all public posts, as well as the private posts of authenticated user.
+            ).order_by('-created_at')
 
         active_filter = request.query_params.get('show', '').lower()
 
