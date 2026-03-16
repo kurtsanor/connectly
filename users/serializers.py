@@ -4,11 +4,12 @@ from .models import User, Follow
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'password', 'first_name', 'last_name', 'google_id', 'avatar']
+        fields = ['id', 'username', 'email', 'password', 'first_name', 'last_name', 'google_id', 'avatar', 'role']
         extra_kwargs = {
-            'password': {'write_only': True},
+            # 'password': {'write_only': True},
             'first_name': {'required': True},
             'last_name': {'required': True},
+            'role': {'required': True}
         }
         read_only_fields = ['google_id']
 

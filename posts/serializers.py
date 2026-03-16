@@ -13,7 +13,7 @@ class PostSerializer(serializers.ModelSerializer):
 class CommentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Comment
-        fields = ['text', 'author', 'post', 'created_at']
+        fields = ['id', 'text', 'author', 'post', 'created_at']
         read_only_fields = ['author', 'post']
 
         def validate_post(self, value):

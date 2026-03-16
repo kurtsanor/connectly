@@ -1,3 +1,4 @@
+from rest_framework.exceptions import ValidationError
 from django.shortcuts import render
 from rest_framework import viewsets, status, serializers
 from rest_framework.views import APIView
@@ -13,6 +14,7 @@ from .services.google_oauth import exchange_code, get_google_auth_url, get_user_
 from .services.jwt import generate_token
 from .services.cloudinary import upload_avatar
 from connectly.singletons.logger_singleton import LoggerSingleton
+from .factories import UserFactory
 
 
 # Instantiate the global logger once using the Singleton pattern for shared use across all views.
@@ -79,13 +81,25 @@ class UserListCreate(APIView):
             })
 
         user_serializer = UserSerializer(data=request.data)
+        user_serializer.is_valid(raise_exception=True)
+        validated_data = user_serializer.validated_data
 
-        if user_serializer.is_valid():
-            hashed_password = make_password(submitted_password)     # Hash the plain-text password before storing it.
-            user_serializer.save(password=hashed_password)
-            return Response(user_serializer.data, status=status.HTTP_201_CREATED)
+        # delegate the creation to the User Factory to handle hashing and additional logic
+        try:
+            new_user = UserFactory.create_user(
+                username=submitted_username,
+                password=submitted_password,
+                email=validated_data.get('email'),
+                first_name=validated_data.get('first_name'),
+                last_name=validated_data.get('last_name'),
+                role=validated_data.get('role')
+            )
 
-        return Response(user_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            response_serializer = UserSerializer(new_user)
+            return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+        
+        except ValueError as user_creation_error:
+            raise ValidationError(detail=str(user_creation_error))
 
 
 class LoginView(APIView):

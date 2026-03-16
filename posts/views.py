@@ -9,7 +9,7 @@ from .serializers import PostSerializer, CommentSerializer, LikeSerializer
 from .permissions import isAuthor
 from .factories.post_factory import PostFactory
 from .pagination import CommentPagination, PostPagination
-from users.permissions import IsAuthenticated
+from users.permissions import IsAuthenticated, IsAdmin
 from users.authentication import JwtAuthentication
 from connectly.singletons.logger_singleton import LoggerSingleton
 from connectly.singletons.paginator_singleton import PostPaginatorSingleton, CommentPaginatorSingleton
@@ -36,13 +36,8 @@ class PostListCreate(APIView):
     def get(self, request):
         """
         Retrieves all posts annotated with their like and comment counts.
-
-        Args:
-            request (Request): The incoming HTTP GET request.
-
-        Returns:
-            Response: A JSON list of all posts including like_count and comment_count.
         """
+
         logger.info("Retrieving all posts...")
 
         # Annotate each post with aggregated like and comment counts in a single query.
@@ -60,14 +55,8 @@ class PostListCreate(APIView):
 
         Validates the incoming data, then delegates post creation to the
         PostFactory to handle type-specific construction logic.
-
-        Args:
-            request (Request): The incoming HTTP POST request containing post data.
-
-        Returns:
-            Response: The created post data on success (HTTP 201), or a validation
-                      error if the post type or data is invalid (HTTP 400).
         """
+
         logger.info("Creating new post...")
         logger.info(f"Requested by user: {request.user}")
 
@@ -104,15 +93,8 @@ class CommentCreateView(APIView):
     def post(self, request, post_id):
         """
         Creates a new comment on the specified post authored by the authenticated user.
-
-        Args:
-            request (Request): The incoming HTTP POST request containing comment data.
-            post_id (int): The primary key of the post to comment on.
-
-        Returns:
-            Response: The created comment data on success (HTTP 201), or validation
-                      errors on failure (HTTP 400).
         """
+
         target_post = Post.objects.get(pk=post_id)
         logger.info(f"Adding comment to post id: {target_post.id}...")
 
@@ -141,15 +123,8 @@ class CommentListView(APIView):
 
         Uses the CommentPagination class to split results into pages.
         Returns all comments unpaginated if pagination is not applicable.
-
-        Args:
-            request (Request): The incoming HTTP GET request.
-            post_id (int): The primary key of the post whose comments are being retrieved.
-
-        Returns:
-            Response: A paginated JSON list of comments, or a full list if pagination
-                      is not applicable.
         """
+
         target_post = Post.objects.get(pk=post_id)
         logger.info(f"Retrieving paginated comments for post id: {target_post.id}...")
 
@@ -166,7 +141,28 @@ class CommentListView(APIView):
         # Fall back to returning all comments if pagination is not triggered.
         comment_serializer = CommentSerializer(post_comments, many=True)    # many=True tells DRF to serialize a list.
         return Response(comment_serializer.data)
+    
+class CommentDetailView(APIView):
+    authentication_classes = [JwtAuthentication]
+    permission_classes = [IsAuthenticated, IsAdmin]
 
+    # deletion of comment
+    def delete(self, request, post_id, comment_id):
+        # check if post exists first
+        try:
+            post = Post.objects.get(pk=post_id)
+        except Post.DoesNotExist:
+            return Response({"Message": "Post not found."}, status=status.HTTP_404_NOT_FOUND)
+        
+        try:
+            # Get the specific for the post
+            comment = post.comments.get(pk=comment_id)
+        except Comment.DoesNotExist:
+            return Response({"Message": "Comment not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # delete the comment
+        comment.delete()
+        return Response({"Message": "Comment deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
 
 class PostLikeView(APIView):
     """
@@ -183,14 +179,6 @@ class PostLikeView(APIView):
         Creates a like on the specified post for the authenticated user.
 
         Prevents duplicate likes by checking if the user has already liked the post.
-
-        Args:
-            request (Request): The incoming HTTP POST request.
-            post_id (int): The primary key of the post to like.
-
-        Returns:
-            Response: A success message and like data on success (HTTP 201), or an error
-                      if the post is not found (HTTP 400) or already liked (HTTP 400).
         """
         try:
             target_post = Post.objects.get(pk=post_id)
@@ -219,13 +207,20 @@ class PostLikeView(APIView):
 class PostDetailView(APIView):
     """
     Handles retrieval of a single post by its ID.
-
+    
     GET /posts/<post_id>/ — Returns the post details including like and comment counts.
                             Only accessible by the post's author.
     """
 
     authentication_classes = [JwtAuthentication]
-    permission_classes = [IsAuthenticated, isAuthor]
+    permission_classes = [IsAuthenticated]
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [IsAuthenticated(), isAuthor()]
+        elif self.request.method == 'DELETE':
+            return [IsAuthenticated(), IsAdmin()]
+        return super().get_permissions()
 
     def get(self, request, post_id):
         """
@@ -233,14 +228,6 @@ class PostDetailView(APIView):
 
         Enforces object-level permissions to ensure only the post's author
         can access this endpoint.
-
-        Args:
-            request (Request): The incoming HTTP GET request.
-            post_id (int): The primary key of the post to retrieve.
-
-        Returns:
-            Response: The post data with like_count and comment_count on success (HTTP 200),
-                      or an error if the post does not exist (HTTP 404).
         """
         try:
             target_post = Post.objects.get(pk=post_id)
@@ -252,12 +239,23 @@ class PostDetailView(APIView):
             # Append live counts directly to the response payload.
             post_data['like_count'] = target_post.post_likes.count()
             post_data['comment_count'] = target_post.comments.count()
-
+        
             return Response(post_data)
 
         except Post.DoesNotExist:
             return Response({"error": "Post does not exist."}, status=status.HTTP_404_NOT_FOUND)
+       
+    def delete(self, request, post_id):
+        """
+        Handles deletion of post by ID.
+        """
 
+        try:
+            target_post = Post.objects.get(pk=post_id)
+            target_post.delete()
+            return Response({"message": "Post deleted successfully."}, status=status.HTTP_204_NO_CONTENT)
+        except Post.DoesNotExist:
+            return Response({"error": "Post does not exist."}, status=status.HTTP_404_NOT_FOUND)
 
 class FeedView(APIView):
     """
@@ -279,13 +277,6 @@ class FeedView(APIView):
 
         Applies the 'show' query parameter to filter the feed, then paginates
         the results using PostPagination.
-
-        Args:
-            request (Request): The incoming HTTP GET request, optionally with a 'show' query param.
-
-        Returns:
-            Response: A paginated JSON list of posts matching the active filter,
-                      or an error if an invalid filter value is provided (HTTP 400).
         """
         # Annotate all posts with counts and sort by newest first.
         feed_posts = Post.objects.annotate(
