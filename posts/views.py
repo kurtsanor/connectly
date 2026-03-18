@@ -298,7 +298,7 @@ class FeedView(APIView):
                 {'error': f'Invalid filter. Valid options are: {self.VALID_FILTERS}'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
+        
         if active_filter == "liked":
             # Narrow the feed to posts the authenticated user has liked.
             feed_posts = feed_posts.filter(post_likes__author=request.user)
