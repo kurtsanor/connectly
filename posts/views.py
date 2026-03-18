@@ -14,6 +14,7 @@ from users.authentication import JwtAuthentication
 from connectly.singletons.logger_singleton import LoggerSingleton
 from connectly.singletons.paginator_singleton import PostPaginatorSingleton, CommentPaginatorSingleton
 from django.db.models import Q
+from django.core.cache import cache
 
 # Instantiate the global singletons once for shared use across all views.
 logger = LoggerSingleton().get_logger()
@@ -74,6 +75,10 @@ class PostListCreate(APIView):
                 author=request.user,
             )
             response_serializer = PostSerializer(new_post)
+
+            feed_current_version = cache.get('feed_version', 0)
+            cache.set('feed_version', feed_current_version + 1)
+
             return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
         except ValueError as post_creation_error:
@@ -282,6 +287,27 @@ class FeedView(APIView):
         Applies the 'show' query parameter to filter the feed, then paginates
         the results using PostPagination.
         """
+
+        active_filter = request.query_params.get('show', '').lower()
+        active_page = request.query_params.get('page', '')
+
+        # Reject requests with unrecognized filter values.
+        if active_filter and active_filter not in self.VALID_FILTERS:
+            return Response(
+                {'error': f'Invalid filter. Valid options are: {self.VALID_FILTERS}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        feed_current_version = cache.get('feed_version', 0)
+
+        cache_key = f"feed_user_{request.user.id}_page_{active_page}_filter_{active_filter}_version_{feed_current_version}"
+
+        cached_feed = cache.get(cache_key)
+        if cached_feed:
+            logger.info(f"Feed cache hit for {request.user.email}.")
+            # Return cached result immediately without hitting the database.
+            return Response(cached_feed)
+
         # Annotate all posts with counts and sort by newest first.
         feed_posts = Post.objects.annotate(
             like_count=Count('post_likes', distinct=True),
@@ -290,15 +316,6 @@ class FeedView(APIView):
             Q(privacy='public') | Q(author=request.user, privacy='private') # Filter to show all public posts, as well as the private posts of authenticated user.
             ).order_by('-created_at')
 
-        active_filter = request.query_params.get('show', '').lower()
-
-        # Reject requests with unrecognized filter values.
-        if active_filter and active_filter not in self.VALID_FILTERS:
-            return Response(
-                {'error': f'Invalid filter. Valid options are: {self.VALID_FILTERS}'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
         if active_filter == "liked":
             # Narrow the feed to posts the authenticated user has liked.
             feed_posts = feed_posts.filter(post_likes__author=request.user)
@@ -312,7 +329,11 @@ class FeedView(APIView):
 
         if paginated_feed is not None:
             feed_serializer = PostSerializer(paginated_feed, many=True, context={'request': request})
-            return post_paginator.get_paginated_response(feed_serializer.data)
+            response_data = post_paginator.get_paginated_response(feed_serializer.data).data
+            cache.set(cache_key, response_data, timeout=60*5) # Cache for 5 minutes.
+            logger.info(f"Feed cache miss for {request.user.email}")
+            return Response(response_data)
 
         feed_serializer = PostSerializer(feed_posts, many=True, context={'request': request})
+        cache.set(cache_key, feed_serializer.data, timeout=60*5) # Cache for 5 minutes.
         return Response(feed_serializer.data)
