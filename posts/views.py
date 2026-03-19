@@ -290,6 +290,7 @@ class FeedView(APIView):
 
         active_filter = request.query_params.get('show', '').lower()
         active_page = request.query_params.get('page', '')
+        page_size = request.query_params.get('page_size', '')
 
         # Reject requests with unrecognized filter values.
         if active_filter and active_filter not in self.VALID_FILTERS:
@@ -300,11 +301,11 @@ class FeedView(APIView):
 
         feed_current_version = cache.get('feed_version', 0)
 
-        cache_key = f"feed_user_{request.user.id}_page_{active_page}_filter_{active_filter}_version_{feed_current_version}"
+        cache_key = f"feed_user_{request.user.id}_page_{active_page}_size_{page_size}_filter_{active_filter}_version_{feed_current_version}"
 
         cached_feed = cache.get(cache_key)
         if cached_feed:
-            logger.info(f"Feed cache hit for {request.user.email}.")
+            logger.info(f"Feed cache hit for {request.user.email} (show={active_filter}, page={active_page}, page_size={page_size})")
             # Return cached result immediately without hitting the database.
             return Response(cached_feed)
 
@@ -331,7 +332,7 @@ class FeedView(APIView):
             feed_serializer = PostSerializer(paginated_feed, many=True, context={'request': request})
             response_data = post_paginator.get_paginated_response(feed_serializer.data).data
             cache.set(cache_key, response_data, timeout=60*5) # Cache for 5 minutes.
-            logger.info(f"Feed cache miss for {request.user.email}")
+            logger.info(f"Feed cache miss for {request.user.email} (show={active_filter}, page={active_page}, page_size={page_size})")
             return Response(response_data)
 
         feed_serializer = PostSerializer(feed_posts, many=True, context={'request': request})

@@ -39,7 +39,7 @@ ALLOWED_HOSTS = []
 # SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 # SECURE_HSTS_PRELOAD = True
 
-cloudinary.config(
+cloudinary.config( 
     cloud_name = os.environ.get('CLOUDINARY_CLOUD_NAME'), 
     api_key = os.environ.get('CLOUDINARY_API_KEY'), 
     api_secret = os.environ.get('CLOUDINARY_API_SECRET')
