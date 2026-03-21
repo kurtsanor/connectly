@@ -15,11 +15,13 @@ from connectly.singletons.logger_singleton import LoggerSingleton
 from connectly.singletons.paginator_singleton import PostPaginatorSingleton, CommentPaginatorSingleton
 from django.db.models import Q
 from django.core.cache import cache
+from connectly.singletons.config_manager import ConfigManager
 
 # Instantiate the global singletons once for shared use across all views.
 logger = LoggerSingleton().get_logger()
 comment_paginator = CommentPaginatorSingleton.get_instance()
 post_paginator = PostPaginatorSingleton.get_instance()
+config = ConfigManager()
 
 
 class PostListCreate(APIView):
@@ -101,12 +103,16 @@ class CommentCreateView(APIView):
         """
 
         target_post = Post.objects.get(pk=post_id)
-        logger.info(f"Adding comment to post id: {target_post.id}...")
 
         comment_serializer = CommentSerializer(data=request.data)
 
         if comment_serializer.is_valid():
             comment_serializer.save(post=target_post, author=request.user)
+
+            # increment the comments version to invalidate the cache
+            comments_current_version = cache.get('comments_version', 0)
+            cache.set('comments_version', comments_current_version + 1)
+
             return Response(comment_serializer.data, status=status.HTTP_201_CREATED)
 
         return Response(comment_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -130,18 +136,37 @@ class CommentListView(APIView):
         Returns all comments unpaginated if pagination is not applicable.
         """
 
+        active_page = request.query_params.get('page', '')
+
+        comments_current_version = cache.get('comments_version', 0)
+
+        cache_key = f"post_{post_id}_comments_page_{active_page}_version_{comments_current_version}"
+
+        # check if post comments are already cached
+        cached_comments = cache.get(cache_key)
+
+        # if yes, return the cached comments without hitting the db
+        if cached_comments:
+            logger.info(f"Comments cache HIT for post id {post_id} (page={active_page}) version={comments_current_version}")
+            return Response(cached_comments)
+
+        # if not in cache, fetch from db
         target_post = Post.objects.get(pk=post_id)
-        logger.info(f"Retrieving paginated comments for post id: {target_post.id}...")
 
-        post_comments = target_post.comments.all()
-
+        post_comments = target_post.comments.all().order_by('-created_at')
+        
         # Instantiate the paginator and attempt to paginate the comment queryset.
         paginated_comments = comment_paginator.paginate_queryset(post_comments, request)
 
         if paginated_comments is not None:
-            logger.info("Returning paginated comment data...")
             comment_serializer = CommentSerializer(paginated_comments, many=True)
-            return comment_paginator.get_paginated_response(comment_serializer.data)
+            response_data = comment_paginator.get_paginated_response(comment_serializer.data).data
+
+            # cache the paginated data
+            cache.set(cache_key, response_data, timeout=config.get_setting('COMMENTS_CACHE_DURATION'))
+            logger.info(f"Comments cache MISS for post id {post_id} (page={active_page}) version={comments_current_version}")
+
+            return Response(response_data)
 
         # Fall back to returning all comments if pagination is not triggered.
         comment_serializer = CommentSerializer(post_comments, many=True)    # many=True tells DRF to serialize a list.
@@ -300,12 +325,12 @@ class FeedView(APIView):
             )
 
         feed_current_version = cache.get('feed_version', 0)
-
+        
         cache_key = f"feed_user_{request.user.id}_page_{active_page}_size_{page_size}_filter_{active_filter}_version_{feed_current_version}"
-
         cached_feed = cache.get(cache_key)
+
         if cached_feed:
-            logger.info(f"Feed cache hit for {request.user.email} (show={active_filter}, page={active_page}, page_size={page_size})")
+            logger.info(f"Feed cache HIT for {request.user.email} (show={active_filter}, page={active_page}, page_size={page_size}), version={feed_current_version}")
             # Return cached result immediately without hitting the database.
             return Response(cached_feed)
 
@@ -331,10 +356,11 @@ class FeedView(APIView):
         if paginated_feed is not None:
             feed_serializer = PostSerializer(paginated_feed, many=True, context={'request': request})
             response_data = post_paginator.get_paginated_response(feed_serializer.data).data
-            cache.set(cache_key, response_data, timeout=60*5) # Cache for 5 minutes.
-            logger.info(f"Feed cache miss for {request.user.email} (show={active_filter}, page={active_page}, page_size={page_size})")
+
+            cache.set(cache_key, response_data, timeout=config.get_setting('FEED_CACHE_DURATION')) # Cache for 5 minutes.
+            logger.info(f"Feed cache MISS for {request.user.email} (show={active_filter}, page={active_page}, page_size={page_size}), version={feed_current_version}")
             return Response(response_data)
 
         feed_serializer = PostSerializer(feed_posts, many=True, context={'request': request})
-        cache.set(cache_key, feed_serializer.data, timeout=60*5) # Cache for 5 minutes.
+        cache.set(cache_key, feed_serializer.data, timeout=config.get_setting('FEED_CACHE_DURATION')) # Cache for 5 minutes.
         return Response(feed_serializer.data)

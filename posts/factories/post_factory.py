@@ -28,7 +28,7 @@ class PostFactory:
 
         # Validate privacy type.
         if privacy not in dict(Post.PRIVACY_TYPES):
-            raise ValueError(f"Invalid privacy type. Valid types are {Post.PRIVACY_TYPES}")
+            raise ValueError(f"Invalid privacy. Valid types are {Post.PRIVACY_TYPES}")
 
         # Create and return the Post instance.
         return Post.objects.create(
