@@ -15,10 +15,15 @@ from .services.jwt import generate_token
 from .services.cloudinary import upload_avatar
 from connectly.singletons.logger_singleton import LoggerSingleton
 from .factories import UserFactory
+from connectly.singletons.paginator_singleton import UserPaginatorSingleton
+from django.core.cache import cache
+from connectly.singletons.config_manager import ConfigManager
 
 
 # Instantiate the global logger once using the Singleton pattern for shared use across all views.
 logger = LoggerSingleton().get_logger()
+user_paginator = UserPaginatorSingleton.get_instance()
+config = ConfigManager()
 
 
 class UserListCreate(APIView):
@@ -46,8 +51,33 @@ class UserListCreate(APIView):
         """
         Retrieves and returns a serialized list of all registered users.
         """
-        all_users = User.objects.all()
-        user_serializer = UserSerializer(all_users, many=True)  # many=True tells DRF to serialize a list of objects.
+
+        active_page = request.query_params.get('page', '')
+
+        users_current_version = cache.get('users_version', 0)
+
+        cache_key = f"users_version_{users_current_version}"
+
+        cached_users = cache.get(cache_key)
+
+        if cached_users:
+            logger.info(f"Users cache HIT for {request.user.email} (page={active_page}), version={users_current_version}")
+            return Response(cached_users)
+
+        all_users = User.objects.all().order_by('-created_at')
+        
+        paginated_users = user_paginator.paginate_queryset(all_users, request)
+
+        if paginated_users is not None:
+            user_serializer = UserSerializer(paginated_users, many=True, context={'request': request})  # many=True tells DRF to serialize a list of objects.
+            response_data = user_paginator.get_paginated_response(user_serializer.data).data
+
+            # cache the paginated response
+            cache.set(cache_key, response_data, timeout=config.get_setting('USERS_CACHE_DURATION'))
+            logger.info(f"Users cache MISS for {request.user.email} (page={active_page})version={users_current_version}")
+            return Response(response_data)
+
+        user_serializer = UserSerializer(paginated_users, many=True, context={'request': request})
         return Response(user_serializer.data)
 
     def post(self, request):
@@ -83,6 +113,10 @@ class UserListCreate(APIView):
             )
 
             response_serializer = UserSerializer(new_user)
+
+            users_current_version = cache.get('users_version', 0)
+            cache.set('users_version', users_current_version + 1)
+
             return Response(response_serializer.data, status=status.HTTP_201_CREATED)
         
         except ValueError as user_creation_error:

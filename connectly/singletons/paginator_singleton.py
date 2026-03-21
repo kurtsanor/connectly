@@ -1,4 +1,5 @@
 from posts.pagination import CommentPagination, PostPagination
+from users.pagination import UserPagination
 
 class CommentPaginatorSingleton:
     """
@@ -29,4 +30,19 @@ class PostPaginatorSingleton:
         # otherwise create a new PostPagination instance.
         if cls._instance is None:
             cls._instance = PostPagination()
+        return cls._instance
+    
+class UserPaginatorSingleton:
+    """
+    Singleton wrapper for UserPagination.
+    Provides a single reusable paginator instance for all post-related views.
+    """
+    _instance = None
+
+    @classmethod
+    def get_instance(cls):
+        # Return the existing instance if it exists,
+        # otherwise create a new PostPagination instance.
+        if cls._instance is None:
+            cls._instance = UserPagination()
         return cls._instance

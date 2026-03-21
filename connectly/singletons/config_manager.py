@@ -14,10 +14,12 @@ class ConfigManager:
             "POST_PAGINATION_SIZE": 10,
             "POST_MAX_PAGE_SIZE": 50,
             "COMMENT_PAGINATION_SIZE": 20,
+            "USER_PAGINATION_SIZE": 20,
             "ENABLE_ANALYTICS": True,
             "RATE_LIMIT": 100,
             "FEED_CACHE_DURATION": 60 * 5, # 5 minutes
             "COMMENTS_CACHE_DURATION": 60 * 2, # 2 minutes
+            "USERS_CACHE_DURATION": 60 * 5,
         }
 
     def get_setting(self, key):
