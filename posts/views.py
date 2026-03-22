@@ -42,11 +42,35 @@ class PostListCreate(APIView):
 
         logger.info("Retrieving all posts...")
 
+        # page number from the request query params
+        active_page = request.query_params.get('page', '')
+
+        # versioning for invalidating cache
+        posts_current_version = cache.get('posts_version', 0)
+
+        cache_key = f"post_user_{request.user.id}_page_{active_page}_version_{posts_current_version}"
+
+        cached_posts = cache.get(cache_key)
+        if cached_posts:
+            logger.info(f"Posts cache HIT for {request.user.email} (page={active_page}), version={posts_current_version}")
+            return Response(cached_posts)
+
         # Annotate each post with aggregated like and comment counts in a single query.
         all_posts = Post.objects.annotate(
             like_count=Count('post_likes', distinct=True),
             comment_count=Count('comments', distinct=True)
-        )
+        ).order_by('-created_at')
+
+        paginated_posts = post_paginator.paginate_queryset(all_posts, request)
+
+        if paginated_posts is not None:
+            post_serializer = PostSerializer(paginated_posts, many=True, context={'request': request})
+            response_data = post_paginator.get_paginated_response(post_serializer.data).data
+
+            # cache the paginated data on 1st retrieval
+            cache.set(cache_key, response_data, timeout=config.get_setting('FEED_CACHE_DURATION'))
+            logger.info(f"Posts cache MISS for {request.user.email} (page={active_page}), version={posts_current_version}")
+            return Response(response_data)
 
         post_serializer = PostSerializer(all_posts, many=True)  # many=True tells DRF to serialize a list.
         return Response(post_serializer.data)
@@ -78,8 +102,13 @@ class PostListCreate(APIView):
             )
             response_serializer = PostSerializer(new_post)
 
+            # increment the feed version
             feed_current_version = cache.get('feed_version', 0)
             cache.set('feed_version', feed_current_version + 1)
+
+            # increment the posts version
+            posts_current_version = cache.get('posts_version', 0)
+            cache.set('posts_version', posts_current_version + 1)
 
             return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
@@ -259,6 +288,14 @@ class PostDetailView(APIView):
         Enforces object-level permissions to ensure only the post's author
         can access this endpoint.
         """
+
+        cache_key = f"detail_post_{post_id}_user_{request.user.id}"
+        
+        cached_post_detail = cache.get(cache_key)
+        if cached_post_detail:
+            logger.info(f"Post Detail cache HIT for {request.user.email} post_id={post_id}")
+            return Response(cached_post_detail)
+
         try:
             target_post = Post.objects.get(pk=post_id)
 
@@ -273,7 +310,9 @@ class PostDetailView(APIView):
             # Append live counts directly to the response payload.
             post_data['like_count'] = target_post.post_likes.count()
             post_data['comment_count'] = target_post.comments.count()
-        
+
+            logger.info(f"Post Detail cache MISS for {request.user.email} post_id={post_id}")
+            cache.set(cache_key, post_data)
             return Response(post_data)
 
         except Post.DoesNotExist:
@@ -287,6 +326,15 @@ class PostDetailView(APIView):
         try:
             target_post = Post.objects.get(pk=post_id)
             target_post.delete()
+
+            # increment the feed version
+            feed_current_version = cache.get('feed_version', 0)
+            cache.set('feed_version', feed_current_version + 1)
+
+            # increment the posts version
+            posts_current_version = cache.get('posts_version', 0)
+            cache.set('posts_version', posts_current_version + 1)
+
             return Response({"message": "Post deleted successfully."}, status=status.HTTP_204_NO_CONTENT)
         except Post.DoesNotExist:
             return Response({"error": "Post does not exist."}, status=status.HTTP_404_NOT_FOUND)
