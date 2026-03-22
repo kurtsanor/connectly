@@ -6,16 +6,16 @@
 
 ## 📌 Project Overview
 
-**Connectly** is a full-featured social media backend built on **Django 6.0.1** and **Django REST Framework**. It provides a robust, scalable REST API that powers core social networking functionality: user identity, content publishing, social interactions, and personalized feeds.
+**Connectly** is a social media backend built with **Django 6.0.1 and Django REST Framework (DRF)**. It exposes a REST API for core social functionality: user accounts, content publishing, social interactions, and feed retrieval.
 
-Whether you're building a mobile app, a web client, or integrating social features into an existing product, Connectly delivers the API layer you need — secure, clean, and extensible.
+Whether you’re building a mobile app, a web client, or adding social features to an existing product, Connectly provides a secure, well-structured, and extensible API layer.
 
 ---
 
 ## ✨ Core Features
 
 ### 👤 User Management
-- **Registration & Authentication** — Secure sign-up/login with JWT token-based auth
+- **Registration & Authentication** — Secure sign-up/login with JWT token-based authentication
 - **Google OAuth** — One-click social login via Google OAuth 2.0
 - **Avatar Uploads** — Profile images stored and served via Cloudinary
 - **User Following** — Follow/unfollow users; query followers and following lists
@@ -27,10 +27,10 @@ Whether you're building a mobile app, a web client, or integrating social featur
 ### 💬 Social Interactions
 - **Comments** — Threaded comment support on any post
 - **Likes** — Like/unlike posts with like count tracking
-- **Post Filters** — Filter feed by liked posts or posts from followed users
+- **Post Filters** — Filter feed by liked posts and/or posts from followed users
 
 ### 📰 Feed System
-- **Personalized Feed** — Aggregated content from users you follow or posts you've liked
+- **Personalized Feed** — Aggregated content from users based on follows and engagement
 - **Pagination** — Efficient page-based pagination for large feeds
 
 ---
