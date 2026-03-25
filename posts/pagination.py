@@ -15,7 +15,6 @@ class PostPagination(PageNumberPagination):
     # max number of posts per page, pulled from config.
     max_page_size = config.get_setting('POST_MAX_PAGE_SIZE')
 
-
 class CommentPagination(PageNumberPagination):
     """
     Pagination class for Comment objects.

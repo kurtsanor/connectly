@@ -221,6 +221,11 @@ class CommentDetailView(APIView):
 
         # delete the comment
         comment.delete()
+
+        # increment the comments version to invalidate the cache
+        comments_current_version = cache.get('comments_version', 0)
+        cache.set('comments_version', comments_current_version + 1)
+        
         return Response({"Message": "Comment deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
 
 class PostLikeView(APIView):
